@@ -1,7 +1,3 @@
-# ============================================================
-# PRODUCTION DEFENSE-IN-DEPTH PIPELINE (FULL SOLUTION)
-# ============================================================
-
 import re
 import time
 import json
@@ -25,7 +21,13 @@ client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
 # 1. RATE LIMITER
 # ============================================================
 class RateLimiter:
-    """Prevent abuse by limiting requests per user (sliding window)."""
+    """
+    Giới hạn số lượng request của mỗi user trong một khoảng thời gian.
+
+    MỤC ĐÍCH:
+    - Ngăn spam / brute-force attack
+    - Tránh việc attacker thử nhiều prompt injection liên tục
+    """
 
     def __init__(self, max_requests=10, window_seconds=60):
         self.max_requests = max_requests
@@ -54,7 +56,14 @@ class RateLimiter:
 # 2. INPUT GUARDRAILS
 # ============================================================
 class InputGuard:
-    """Detect prompt injection, harmful queries, and off-topic input."""
+    """
+    Phát hiện input độc hại hoặc không liên quan trước khi gọi LLM.
+
+    MỤC ĐÍCH:
+    - Chống prompt injection
+    - Chặn yêu cầu lấy secret ngay từ đầu
+    - Giảm chi phí (không gọi LLM nếu biết chắc là thông tin xấu)
+    """
 
     def __init__(self):
         self.patterns = {
@@ -77,6 +86,14 @@ class InputGuard:
 # 3. CONTENT FILTER (OUTPUT)
 # ============================================================
 def content_filter(text: str):
+    """
+    Loại bỏ thông tin nhạy cảm (PII / secret) khỏi output của model.
+
+    MỤC ĐÍCH:
+    - LLM có thể hallucinate hoặc vô tình leak dữ liệu
+    - Lớp bảo vệ sau khi model đã generate
+    """
+    
     issues = []
     redacted = text
 
@@ -102,6 +119,14 @@ def content_filter(text: str):
 # 4. MOCK LLM (SIMULATION)
 # ============================================================
 async def call_llm(prompt: str):
+    """
+    Gọi model Gemini để sinh câu trả lời.
+
+    MỤC ĐÍCH:
+    - Thành phần “trí tuệ” chính của hệ thống
+    - Prompt có thêm instruction để giảm rủi ro
+    """
+    
     response = await client.aio.models.generate_content(
         model="gemini-2.5-flash-lite",
         contents=f"""You are a banking assistant for VinBank.
@@ -138,6 +163,14 @@ REASON: <short reason>
 """
 
 async def llm_judge(user_input: str, response: str):
+    """
+    Dùng một LLM khác để đánh giá output của LLM chính.
+
+    MỤC ĐÍCH:
+    - Phát hiện lỗi mà regex không bắt được
+    - Bắt hallucination, lệch tone, hoặc leak tinh vi
+    """
+    
     result = await client.aio.models.generate_content(
         model="gemini-2.5-flash-lite",
         contents=f"""{JUDGE_PROMPT}
@@ -162,6 +195,14 @@ AI response:
 # 6. AUDIT LOG
 # ============================================================
 class AuditLog:
+    """
+    Lưu lại toàn bộ interaction để phục vụ debug và audit.
+
+    MỤC ĐÍCH:
+    - Trace lại hành vi hệ thống
+    - Điều tra khi có sự cố hoặc tấn công
+    """
+    
     def __init__(self):
         self.logs = []
 
@@ -176,6 +217,14 @@ class AuditLog:
 # 7. MONITORING
 # ============================================================
 class Monitor:
+    """
+    Theo dõi trạng thái hệ thống và phát hiện bất thường.
+
+    MỤC ĐÍCH:
+    - Nhận diện khi có quá nhiều request bị block
+    - Có thể trigger alert trong production
+    """
+    
     def __init__(self):
         self.blocked = 0
         self.total = 0
@@ -195,6 +244,10 @@ class Monitor:
 # 8. PIPELINE
 # ============================================================
 class DefensePipeline:
+    """
+    Pipeline hoàn chỉnh kết hợp nhiều lớp bảo vệ.
+    """
+    
     def __init__(self):
         self.rate = RateLimiter()
         self.input_guard = InputGuard()
